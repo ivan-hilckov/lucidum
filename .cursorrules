@@ -1,0 +1,16 @@
+# Cursor Rules for Lucidum Project
+
+## Language Requirements
+
+- **ALL conversations and communications must be conducted in English only**
+
+## Project Context
+
+A Telegram bot that helps you create, store, and generate resumes and job application messages using the OpenAI API.
+
+## Code Style Guidelines
+
+- Follow Python PEP 8 style guidelines
+- Use clear, descriptive variable and function names
+- Write comprehensive comments for complex neural network concepts
+- Use meaningful docstrings for functions and classes
