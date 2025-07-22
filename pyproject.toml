@@ -1,0 +1,33 @@
+[project]
+name = "lucidum"
+version = "0.1.0"
+description = "Telegram bot for resume management and cover letter generation"
+requires-python = ">=3.11"
+dependencies = [
+    "aiogram>=3.0.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+] 
+
+[dependency-groups]
+dev = [
+    "basedpyright>=1.31.0",
+    "ruff>=0.12.4",
+]
+
+[tool.basedpyright]
+include = ["*.py"]
+exclude = ["**/__pycache__"]
+reportImplicitStringConcatenation = false
+reportUnknownMemberType = false
+reportAny = false
+pythonVersion = "3.10"
+typeCheckingMode = "standard"
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I"]
+ignore = ["E501"]  # Line too long
