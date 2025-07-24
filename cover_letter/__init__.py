@@ -1,11 +1,14 @@
 """
-Cover Letter Generation Package for Lucidum Bot.
-
-This package provides advanced cover letter generation capabilities
-with analysis, validation, and role-based prompting.
+Simple cover letter generation system.
 """
 
 from .generator import CoverLetterGenerator
-from .models import CoverLetterResult, JobAnalysis, ValidationResult
+from .models import CoverLetterResult, JobAnalysis, RoleType, ValidationResult
 
-__all__ = ["CoverLetterGenerator", "CoverLetterResult", "JobAnalysis", "ValidationResult"]
+__all__ = [
+    "CoverLetterGenerator",
+    "CoverLetterResult",
+    "JobAnalysis",
+    "RoleType",
+    "ValidationResult",
+]

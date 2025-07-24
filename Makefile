@@ -1,4 +1,4 @@
-.PHONY: lint check format install run clean
+.PHONY: lint check format install run clean test test-smoke test-cov
 
 # Run type checking with basedpyright
 lint:
@@ -19,6 +19,18 @@ install:
 # Run the bot
 run:
 	uv run python bot.py
+
+# Run all tests
+test:
+	uv run pytest tests/ -v
+
+# Run smoke tests only
+test-smoke:
+	uv run pytest tests/test_cover_letter/test_basic.py -v
+
+# Run tests with coverage
+test-cov:
+	uv run pytest tests/ --cov=cover_letter --cov-report=html --cov-report=term
 
 # Clean cache files
 clean:
@@ -42,6 +54,9 @@ help:
 	@echo "  check       - Check code with ruff"
 	@echo "  install     - Install dependencies"
 	@echo "  run         - Run the bot"
+	@echo "  test        - Run all tests"
+	@echo "  test-smoke  - Run smoke tests only"
+	@echo "  test-cov    - Run tests with coverage"
 	@echo "  clean       - Clean cache files"
 	@echo "  full-check  - Run format, check, and lint"
 	@echo "  install-dev - Install development dependencies"

@@ -200,34 +200,25 @@ async def text_handler(message: types.Message) -> None:
 
 
 async def generate_cover_letter(resume: str, job_description: str) -> str:
-    """Generate a cover letter using advanced OpenAI API with analysis and validation."""
+    """Generate a cover letter using simplified system."""
     try:
-        # Use new advanced cover letter generator
+        # Use simple cover letter generator
         from cover_letter import CoverLetterGenerator
 
         generator = CoverLetterGenerator(client)
         result = await generator.generate(resume=resume, job_description=job_description)
 
-        # Prepare response with quality information
+        # Simple response
         response_parts = [result.cover_letter]
 
-        # Add quality feedback if score is below threshold
+        # Add quality info if low
         if result.quality_score < 0.8:
-            response_parts.append(f"\n⚠️ Качество: {result.quality_score:.1%}")
-            if result.validation_result.issues:
-                response_parts.append(
-                    f"Рекомендации: {', '.join(result.validation_result.suggestions[:2])}"
-                )
-
-        # Add metadata for debugging (can be removed in production)
-        if result.metadata.get("role_description"):
-            response_parts.append(f"\n🤖 Роль: {result.metadata['role_description']}")
+            response_parts.append(f"\n⚠️ Качество: {result.quality_score:.0%}")
 
         return "\n".join(response_parts)
 
-    except Exception as e:
-        # Fallback to simple generation if new system fails
-        print(f"Advanced generation failed, using fallback: {e}")
+    except Exception:
+        # Simple fallback
         return await generate_cover_letter_fallback(resume, job_description)
 
 

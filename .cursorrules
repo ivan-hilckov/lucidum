@@ -14,3 +14,12 @@ A Telegram bot that helps you create, store, and generate resumes and job applic
 - Use clear, descriptive variable and function names
 - Write comprehensive comments for complex neural network concepts
 - Use meaningful docstrings for functions and classes
+
+## Response Style Guidelines
+
+- **AVOID elaborate celebratory reports** with excessive emojis and "mission accomplished" style summaries
+- **NO before/after comparison tables** with visual formatting like 🔴 → ✅
+- **Minimize emoji usage** - use sparingly and only when truly necessary
+- **Keep responses concise and professional** - focus on technical content
+- **Avoid celebratory language** like "MISSION ACCOMPLISHED!", "🎉 SUCCESS!", etc.
+- **Provide direct, actionable information** without excessive formatting or enthusiasm
