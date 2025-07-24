@@ -200,31 +200,62 @@ async def text_handler(message: types.Message) -> None:
 
 
 async def generate_cover_letter(resume: str, job_description: str) -> str:
-    """Generate a cover letter using OpenAI API."""
+    """Generate a cover letter using advanced OpenAI API with analysis and validation."""
     try:
+        # Use new advanced cover letter generator
+        from cover_letter import CoverLetterGenerator
+
+        generator = CoverLetterGenerator(client)
+        result = await generator.generate(resume=resume, job_description=job_description)
+
+        # Prepare response with quality information
+        response_parts = [result.cover_letter]
+
+        # Add quality feedback if score is below threshold
+        if result.quality_score < 0.8:
+            response_parts.append(f"\n⚠️ Качество: {result.quality_score:.1%}")
+            if result.validation_result.issues:
+                response_parts.append(
+                    f"Рекомендации: {', '.join(result.validation_result.suggestions[:2])}"
+                )
+
+        # Add metadata for debugging (can be removed in production)
+        if result.metadata.get("role_description"):
+            response_parts.append(f"\n🤖 Роль: {result.metadata['role_description']}")
+
+        return "\n".join(response_parts)
+
+    except Exception as e:
+        # Fallback to simple generation if new system fails
+        print(f"Advanced generation failed, using fallback: {e}")
+        return await generate_cover_letter_fallback(resume, job_description)
+
+
+async def generate_cover_letter_fallback(resume: str, job_description: str) -> str:
+    """Fallback cover letter generation (original simple method)."""
+    try:
+        system_prompt = """
+        You are a professional cover letter writer. Create concise, relevant cover letters
+        in Russian language. Base the cover letter strictly on the real experience and skills mentioned
+        in the provided resume.
+        """
+
+        user_prompt = f"""
+        Resume:
+        {resume}
+
+        Job Description:
+        {job_description}
+        """
+
         response = await client.chat.completions.create(
-            model="gpt-4",
+            model="gpt-4o-mini",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "You are a professional cover letter writer. Create concise, relevant cover letters "
-                        + "in Russian language. The cover letter must be no longer than 1500 characters. "
-                        + "Base the cover letter strictly on the real experience and skills mentioned "
-                        + "in the provided resume."
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": (
-                        f"Resume:\n{resume}\n\nJob Description:\n{job_description}\n\n"
-                        + "Write a professional cover letter in Russian (maximum 500 characters) that "
-                        + "highlights specific experience and skills from the resume that match the job requirements:"
-                    ),
-                },
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
             ],
-            max_tokens=500,
-            temperature=0.7,
+            max_tokens=1500,
+            temperature=0.5,
         )
 
         content: str | None = response.choices[0].message.content
