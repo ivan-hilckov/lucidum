@@ -2,7 +2,6 @@
 Tests for role definitions.
 """
 
-import pytest
 from cover_letter.roles import RoleDefinitions
 from cover_letter.models import RoleType
 

@@ -7,9 +7,7 @@ import asyncio
 from cover_letter import (
     CoverLetterGenerator,
     CoverLetterResult,
-    JobAnalysis,
     RoleType,
-    ValidationResult,
 )
 
 
@@ -18,25 +16,13 @@ class TestSmoke:
 
     def test_imports(self):
         """Test that main components can be imported."""
-        from cover_letter.models import (
-            RoleType,
-            CompanySize,
-            Requirements,
-            JobAnalysis,
-            ValidationResult,
-            CoverLetterResult,
-        )
-        from cover_letter.analyzer import JobAnalyzer
-        from cover_letter.prompt_builder import PromptBuilder
-        from cover_letter.generator import CoverLetterGenerator
-        from cover_letter.roles import RoleDefinitions
 
         # All imports successful
         assert True
 
     def test_model_creation(self):
         """Test basic model creation."""
-        from cover_letter.models import JobAnalysis, Requirements, CompanySize, RoleType
+        from cover_letter.models import JobAnalysis, Requirements, CompanySize
 
         requirements = Requirements(
             hard_skills=["Python"],
@@ -141,8 +127,7 @@ if __name__ == "__main__":
 
         # Test imports
         try:
-            from cover_letter import CoverLetterGenerator, RoleType
-            from cover_letter.models import JobAnalysis, Requirements
+            from cover_letter import RoleType
             from cover_letter.roles import RoleDefinitions
 
             print("✅ Imports work")

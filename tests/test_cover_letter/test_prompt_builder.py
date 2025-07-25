@@ -2,7 +2,6 @@
 Tests for prompt builder.
 """
 
-import pytest
 from cover_letter.prompt_builder import PromptBuilder
 from cover_letter.models import RoleType, JobAnalysis, Requirements, CompanySize
 

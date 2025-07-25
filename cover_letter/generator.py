@@ -84,22 +84,21 @@ class CoverLetterGenerator:
 
     async def _generate_simple(self, system_prompt: str, user_prompt: str) -> str:
         """Simple generation without complexity."""
-        try:
-            response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
-                messages=[
-                    {"role": "system", "content": system_prompt},
-                    {"role": "user", "content": user_prompt},
-                ],
-                max_tokens=600,
-                temperature=0.3,
-            )
+        response = await self.client.chat.completions.create(
+            model="gpt-4o-mini",
+            messages=[
+                {"role": "system", "content": system_prompt},
+                {"role": "user", "content": user_prompt},
+            ],
+            max_tokens=600,
+            temperature=0.3,
+        )
 
-            content = response.choices[0].message.content
-            return content if content else "Ошибка генерации сопроводительного письма"
-
-        except Exception as e:
-            return f"Ошибка при генерации: {str(e)}"
+        content = response.choices[0].message.content
+        if content and len(content.split()) >= 50:  # Ensure meaningful length
+            return content
+        else:
+            raise Exception("Получен неполный ответ от OpenAI")
 
     def _create_simple_validation(self, cover_letter: str, keywords: list) -> ValidationResult:
         """Create simple validation result."""
@@ -185,7 +184,7 @@ class CoverLetterGenerator:
                         soft_skills=[],
                         experience_years=None,
                         education_level=None,
-                        certifications=[]
+                        certifications=[],
                     ),
                     seniority_level=None,
                     is_technical_role=False,
@@ -223,7 +222,7 @@ class CoverLetterGenerator:
                         soft_skills=[],
                         experience_years=None,
                         education_level=None,
-                        certifications=[]
+                        certifications=[],
                     ),
                     seniority_level=None,
                     is_technical_role=False,

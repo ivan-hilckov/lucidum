@@ -15,36 +15,27 @@ class PromptBuilder:
 
     def select_optimal_role(self, job_analysis: JobAnalysis) -> RoleType:
         """
-        Select role - hardcoded to CORPORATE_RECRUITER for simplicity.
+        Select role - always return CORPORATE_RECRUITER for simplicity in this implementation.
         """
         # Always use CORPORATE_RECRUITER - simple and reliable
         return RoleType.CORPORATE_RECRUITER
 
     def build_system_prompt(self, role_type: RoleType, context: Dict[str, Any]) -> str:
         """
-        Build simple system prompt.
+        Build system prompt using role definitions.
         """
-        # Simple, effective prompt
-        prompt = """
-Ты - опытный HR-специалист, который пишет сопроводительные письма для отклика на вакансии.
+        # Get role-specific prompt
+        base_prompt = RoleDefinitions.get_role_prompt(role_type)
 
-Создай профессиональное сопроводительное письмо на русском языке.
+        # Add keywords if provided
+        if "keywords" in context and context["keywords"]:
+            keywords_text = ", ".join(context["keywords"])
+            keywords_section = f"\nКлючевые навыки: {keywords_text}\n"
+            base_prompt += keywords_section
+        else:
+            base_prompt += "\nКлючевые навыки: \n"
 
-ТРЕБОВАНИЯ:
-- Длина: 250-350 слов
-- Структура: Приветствие + 2 абзаца с достижениями + Заключение
-- Включи 2-3 конкретных достижения с цифрами из резюме
-- Используй навыки из описания вакансии
-- Тон: уверенный, профессиональный
-
-ИЗБЕГАЙ:
-- Общих фраз
-- Повторения резюме
-- Лишних эмоций
-- Упоминания зарплаты
-        """
-
-        return prompt
+        return base_prompt
 
     def build_user_prompt(
         self,
@@ -75,9 +66,9 @@ class PromptBuilder:
         return "\n".join(prompt_parts)
 
     def get_role_temperature(self, role_type: RoleType) -> float:
-        """Get temperature - always 0.3 for consistency."""
-        return 0.3
+        """Get temperature from role definitions."""
+        return RoleDefinitions.get_role_temperature(role_type)
 
     def get_role_description(self, role_type: RoleType) -> str:
-        """Get role description."""
-        return "Опытный HR-специалист"
+        """Get role description from role definitions."""
+        return RoleDefinitions.get_role_description(role_type)

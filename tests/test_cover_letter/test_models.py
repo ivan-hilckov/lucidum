@@ -2,7 +2,6 @@
 Tests for cover letter models.
 """
 
-import pytest
 from cover_letter.models import (
     RoleType,
     CompanySize,

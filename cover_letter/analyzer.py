@@ -118,6 +118,12 @@ class JobAnalyzer:
             "sql",
             "git",
             "api",
+            "data scientist",
+            "scientist",
+            "devops",
+            "frontend",
+            "backend",
+            "machine learning",
         ]
 
         text_lower = job_description.lower()
@@ -134,6 +140,12 @@ class JobAnalyzer:
             "ux",
             "графический",
             "маркетинг",
+            "content",
+            "writer",
+            "писатель",
+            "редактор",
+            "editor",
+            "video",
         ]
 
         text_lower = job_description.lower()

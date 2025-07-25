@@ -5,13 +5,4 @@
     "Lucidum"
   ],
   "python.defaultInterpreterPath": "./.venv/bin/python",
-  "python.analysis.extraPaths": ["./"],
-  "python.analysis.autoImportCompletions": true,
-  "python.analysis.typeCheckingMode": "basic",
-  "pylsp.plugins.pycodestyle.enabled": false,
-  "pylsp.plugins.mccabe.enabled": false,
-  "pylsp.plugins.pyflakes.enabled": false,
-  "python.languageServer": "None",
-  "python.analysis.include": ["cover_letter/**/*.py", "*.py"],
-  "python.analysis.exclude": ["**/.*", "**/__pycache__", "**/node_modules"]
 }
