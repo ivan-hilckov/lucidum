@@ -1,22 +1,49 @@
+"""
+Simplified cover letter generator with all functionality combined.
+"""
+
+import logging
+import re
 import time
+from typing import List, Optional
 
-from openai import AsyncOpenAI
+from openai import AsyncOpenAI, OpenAIError
 
-from .analyzer import JobAnalyzer
-from .models import CoverLetterResult, JobAnalysis, RoleType, ValidationResult, Requirements
-from .prompt_builder import PromptBuilder
+from .models import CoverLetterResult, JobAnalysis
+from .prompts import (
+    COVER_LETTER_SYSTEM_PROMPT,
+    COVER_LETTER_MAX_TOKENS,
+    COVER_LETTER_TEMPERATURE,
+    DEFAULT_MODEL,
+    JOB_DESCRIPTION_PREVIEW_LIMIT,
+    KEYWORD_EXTRACTION_MAX_TOKENS,
+    KEYWORD_EXTRACTION_PROMPT,
+    KEYWORD_EXTRACTION_TEMPERATURE,
+    MINIMUM_COVER_LETTER_WORDS,
+    TECH_SKILL_PATTERNS,
+    FALLBACK_SYSTEM_PROMPT,
+    FALLBACK_MAX_TOKENS,
+    FALLBACK_TEMPERATURE,
+)
+
+# Configure logging
+logger = logging.getLogger(__name__)
+
+
+class CoverLetterGenerationError(Exception):
+    """Error during cover letter generation."""
+
+    pass
 
 
 class CoverLetterGenerator:
     """
-    Simple cover letter generator.
+    Simplified cover letter generator with all functionality combined.
     """
 
     def __init__(self, openai_client: AsyncOpenAI):
         """Initialize the generator."""
         self.client = openai_client
-        self.analyzer = JobAnalyzer(openai_client)
-        self.prompt_builder = PromptBuilder()
 
     async def generate(
         self,
@@ -30,205 +57,251 @@ class CoverLetterGenerator:
         Generate cover letter - simplified version.
         """
         start_time = time.time()
+        logger.info("Starting cover letter generation")
 
         try:
             # Step 1: Simple job analysis
-            job_analysis = await self.analyzer.analyze_job(job_description)
+            job_analysis = await self._analyze_job(job_description)
+            logger.debug(f"Job analysis completed: {len(job_analysis.keywords)} keywords found")
 
             # Override company name if provided
             if company_name:
                 job_analysis.company_name = company_name
+                logger.debug(f"Using provided company name: {company_name}")
 
-            # Step 2: Use hardcoded role
-            selected_role = self.prompt_builder.select_optimal_role(job_analysis)
-
-            # Step 3: Build simple prompts
-            system_prompt = self.prompt_builder.build_system_prompt(selected_role, {})
-
-            additional_context = {"company_name": company_name}
-            user_prompt = self.prompt_builder.build_user_prompt(
-                resume, job_description, job_analysis, additional_context
+            # Step 2: Generate cover letter
+            cover_letter = await self._generate_cover_letter(
+                resume, job_description, job_analysis, company_name
             )
-
-            # Step 4: Generate cover letter
-            cover_letter = await self._generate_simple(system_prompt, user_prompt)
+            logger.info("Cover letter generated successfully")
 
             generation_time = time.time() - start_time
 
-            # Simple validation
-            validation_result = self._create_simple_validation(cover_letter, job_analysis.keywords)
+            generation_time = time.time() - start_time
 
-            # Simple metadata
+            # Simple validation and metadata
+            word_count = len(cover_letter.split())
+            keyword_matches = sum(
+                1 for kw in job_analysis.keywords if kw.lower() in cover_letter.lower()
+            )
+
+            # Simple quality score
+            quality_score = 0.7  # Base score
+            if 200 <= word_count <= 500:
+                quality_score += 0.1
+            if job_analysis.keywords and keyword_matches > 0:
+                quality_score += min(keyword_matches / len(job_analysis.keywords) * 0.2, 0.2)
+
             metadata = {
-                "role_description": "Опытный HR-специалист",
-                "word_count": len(cover_letter.split()),
-                "keywords_found": sum(
-                    1 for kw in job_analysis.keywords if kw.lower() in cover_letter.lower()
-                ),
+                "word_count": word_count,
+                "keywords_found": keyword_matches,
                 "total_keywords": len(job_analysis.keywords),
             }
 
             return CoverLetterResult(
                 cover_letter=cover_letter,
-                quality_score=validation_result.score,
-                validation_result=validation_result,
-                job_analysis=job_analysis,
-                role_used=selected_role,
+                quality_score=min(quality_score, 1.0),
+                keywords_found=keyword_matches,
                 generation_time=generation_time,
                 metadata=metadata,
             )
 
-        except Exception:
-            # Simple fallback
+        except OpenAIError as e:
+            logger.error(f"OpenAI service error during generation: {e}")
+            return await self._simple_fallback(resume, job_description, start_time)
+        except CoverLetterGenerationError as e:
+            logger.warning(f"Content generation error: {e}")
+            return await self._simple_fallback(resume, job_description, start_time)
+        except Exception as e:
+            logger.error(f"Unexpected error during generation: {e}", exc_info=True)
             return await self._simple_fallback(resume, job_description, start_time)
 
-    async def _generate_simple(self, system_prompt: str, user_prompt: str) -> str:
-        """Simple generation without complexity."""
-        response = await self.client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=600,
-            temperature=0.3,
+    async def _analyze_job(self, job_description: str) -> JobAnalysis:
+        """
+        Simple job analysis - extract basic info only.
+        """
+        logger.debug("Starting job analysis")
+
+        # Simple keyword extraction
+        try:
+            keywords = await self._extract_keywords(job_description)
+        except CoverLetterGenerationError:
+            logger.warning("Keyword extraction failed, using fallback")
+            keywords = self._extract_keywords_regex(job_description)
+
+        # Basic company name extraction
+        company_name = self._extract_company_name(job_description)
+        if company_name:
+            logger.debug(f"Extracted company name: {company_name}")
+
+        return JobAnalysis(
+            keywords=keywords,
+            company_name=company_name,
         )
 
-        content = response.choices[0].message.content
-        if content and len(content.split()) >= 50:  # Ensure meaningful length
-            return content
-        else:
-            raise Exception("Получен неполный ответ от OpenAI")
+    async def _extract_keywords(self, job_description: str) -> List[str]:
+        """Simple keyword extraction using OpenAI."""
+        logger.debug("Extracting keywords using OpenAI")
 
-    def _create_simple_validation(self, cover_letter: str, keywords: list) -> ValidationResult:
-        """Create simple validation result."""
-        word_count = len(cover_letter.split())
-
-        # Simple checks
-        length_ok = 200 <= word_count <= 500
-        structure_ok = len(cover_letter.split("\n\n")) >= 2  # At least 2 paragraphs
-
-        # Count keyword matches
-        keyword_matches = sum(1 for kw in keywords if kw.lower() in cover_letter.lower())
-        keyword_ratio = keyword_matches / len(keywords) if keywords else 0
-
-        # Simple score calculation
-        score = 0.7  # Base score
-        if length_ok:
-            score += 0.1
-        if structure_ok:
-            score += 0.1
-        score += min(keyword_ratio * 0.2, 0.2)  # Max 0.2 bonus for keywords
-
-        return ValidationResult(
-            is_valid=length_ok and structure_ok,
-            score=min(score, 1.0),
-            length_ok=length_ok,
-            structure_ok=structure_ok,
-            has_metrics=False,  # Simplified
-            keyword_match=keyword_ratio,
-            personalization_score=0.8,  # Simplified
-            issues=[],
-            suggestions=[],
+        prompt = KEYWORD_EXTRACTION_PROMPT.format(
+            job_description=job_description[:JOB_DESCRIPTION_PREVIEW_LIMIT]
         )
+
+        try:
+            response = await self.client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=[{"role": "user", "content": prompt}],
+                max_tokens=KEYWORD_EXTRACTION_MAX_TOKENS,
+                temperature=KEYWORD_EXTRACTION_TEMPERATURE,
+            )
+
+            content = response.choices[0].message.content
+            if content:
+                # Parse keywords
+                keywords = [kw.strip() for kw in content.split(",")]
+                keywords = [kw for kw in keywords if kw and len(kw) > 2][:12]
+                logger.debug(f"Extracted {len(keywords)} keywords via OpenAI")
+                return keywords
+
+        except OpenAIError as e:
+            logger.error(f"OpenAI API error during keyword extraction: {e}")
+            raise CoverLetterGenerationError(f"Failed to extract keywords: {e}") from e
+        except Exception as e:
+            logger.error(f"Unexpected error during keyword extraction: {e}")
+            raise CoverLetterGenerationError(f"Keyword extraction failed: {e}") from e
+
+        # If we get here, content was empty or invalid
+        logger.warning("OpenAI returned empty content for keyword extraction")
+        raise CoverLetterGenerationError("Empty response from OpenAI")
+
+    def _extract_keywords_regex(self, job_description: str) -> List[str]:
+        """Fallback keyword extraction using regex."""
+        logger.debug("Using regex fallback for keyword extraction")
+        keywords = []
+        text_lower = job_description.lower()
+
+        for pattern in TECH_SKILL_PATTERNS:
+            matches = re.findall(pattern, text_lower, re.IGNORECASE)
+            keywords.extend(matches)
+
+        result = list(set(keywords))[:8]
+        logger.debug(f"Regex extraction found {len(result)} keywords")
+        return result
+
+    def _extract_company_name(self, job_description: str) -> Optional[str]:
+        """Extract company name using simple patterns."""
+        lines = job_description.split("\n")
+
+        for line in lines[:5]:  # Check first 5 lines
+            line = line.strip()
+            # Look for "Компания: X" pattern
+            if "компания:" in line.lower():
+                return line.split(":", 1)[1].strip()
+            # Look for company name in common patterns
+            if any(word in line.lower() for word in ["ооо", "зао", "оао", "ип"]):
+                return line.strip()
+
+        return None
+
+    async def _generate_cover_letter(
+        self,
+        resume: str,
+        job_description: str,
+        job_analysis: JobAnalysis,
+        company_name: str = "",
+    ) -> str:
+        """Generate cover letter using simplified prompt."""
+        logger.debug("Generating cover letter content")
+
+        # Build system prompt (simplified role)
+        system_prompt = COVER_LETTER_SYSTEM_PROMPT
+
+        # Add keywords if available
+        if job_analysis.keywords:
+            keywords_text = ", ".join(job_analysis.keywords)
+            system_prompt += f"\nКлючевые навыки: {keywords_text}\n"
+
+        # Build user prompt
+        prompt_parts = [
+            "РЕЗЮМЕ КАНДИДАТА:",
+            resume,
+            "",
+            "ОПИСАНИЕ ВАКАНСИИ:",
+            job_description,
+        ]
+
+        # Add company name if provided
+        final_company = company_name or job_analysis.company_name
+        if final_company:
+            prompt_parts.extend(["", f"НАЗВАНИЕ КОМПАНИИ: {final_company}"])
+
+        user_prompt = "\n".join(prompt_parts)
+
+        # Generate cover letter
+        try:
+            response = await self.client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=[
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
+                ],
+                max_tokens=COVER_LETTER_MAX_TOKENS,
+                temperature=COVER_LETTER_TEMPERATURE,
+            )
+
+            content = response.choices[0].message.content
+            if content and len(content.split()) >= MINIMUM_COVER_LETTER_WORDS:
+                logger.info("Cover letter content generated successfully")
+                return content
+            else:
+                logger.warning("Generated cover letter is too short or empty")
+                raise CoverLetterGenerationError("Generated content is too short")
+
+        except OpenAIError as e:
+            logger.error(f"OpenAI API error during cover letter generation: {e}")
+            raise CoverLetterGenerationError(f"Failed to generate cover letter: {e}") from e
 
     async def _simple_fallback(
         self, resume: str, job_description: str, start_time: float
     ) -> CoverLetterResult:
         """Ultra-simple fallback generation."""
-        try:
-            simple_prompt = """
-            Создай короткое сопроводительное письмо на русском языке.
-            Используй опыт из резюме и упомяни подходящие навыки для вакансии.
-            Длина: 250-350 слов.
-            """
+        logger.info("Using fallback generation method")
 
+        try:
             user_prompt = f"Резюме:\n{resume}\n\nВакансия:\n{job_description}"
 
             response = await self.client.chat.completions.create(
-                model="gpt-4o-mini",
+                model=DEFAULT_MODEL,
                 messages=[
-                    {"role": "system", "content": simple_prompt},
+                    {"role": "system", "content": FALLBACK_SYSTEM_PROMPT},
                     {"role": "user", "content": user_prompt},
                 ],
-                max_tokens=500,
-                temperature=0.5,
+                max_tokens=FALLBACK_MAX_TOKENS,
+                temperature=FALLBACK_TEMPERATURE,
             )
 
             cover_letter = response.choices[0].message.content or "Ошибка генерации"
             generation_time = time.time() - start_time
+            word_count = len(cover_letter.split())
+
+            logger.info("Fallback generation completed successfully")
 
             # Minimal result
             return CoverLetterResult(
                 cover_letter=cover_letter,
                 quality_score=0.7,
-                validation_result=ValidationResult(
-                    is_valid=True,
-                    score=0.7,
-                    length_ok=True,
-                    structure_ok=True,
-                    has_metrics=False,
-                    keyword_match=0.5,
-                    personalization_score=0.5,
-                    issues=[],
-                    suggestions=[],
-                ),
-                job_analysis=JobAnalysis(
-                    keywords=[],
-                    company_name=None,
-                    company_size=None,
-                    company_culture=None,
-                    industry=None,
-                    requirements=Requirements(
-                        hard_skills=[],
-                        soft_skills=[],
-                        experience_years=None,
-                        education_level=None,
-                        certifications=[],
-                    ),
-                    seniority_level=None,
-                    is_technical_role=False,
-                    is_creative_role=False,
-                ),
-                role_used=RoleType.CORPORATE_RECRUITER,
+                keywords_found=0,
                 generation_time=generation_time,
-                metadata={"fallback_used": True},
+                metadata={"fallback_used": True, "word_count": word_count},
             )
 
         except Exception as e:
+            logger.error(f"Fallback generation failed: {e}", exc_info=True)
             generation_time = time.time() - start_time
             return CoverLetterResult(
                 cover_letter=f"Критическая ошибка: {str(e)}",
                 quality_score=0.0,
-                validation_result=ValidationResult(
-                    is_valid=False,
-                    score=0.0,
-                    length_ok=False,
-                    structure_ok=False,
-                    has_metrics=False,
-                    keyword_match=0.0,
-                    personalization_score=0.0,
-                    issues=["Ошибка генерации"],
-                    suggestions=[],
-                ),
-                job_analysis=JobAnalysis(
-                    keywords=[],
-                    company_name=None,
-                    company_size=None,
-                    company_culture=None,
-                    industry=None,
-                    requirements=Requirements(
-                        hard_skills=[],
-                        soft_skills=[],
-                        experience_years=None,
-                        education_level=None,
-                        certifications=[],
-                    ),
-                    seniority_level=None,
-                    is_technical_role=False,
-                    is_creative_role=False,
-                ),
-                role_used=RoleType.CORPORATE_RECRUITER,
+                keywords_found=0,
                 generation_time=generation_time,
                 metadata={"error": str(e)},
             )

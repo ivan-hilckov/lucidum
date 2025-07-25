@@ -1,5 +1,6 @@
 import asyncio
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -8,6 +9,12 @@ from aiogram.filters import Command
 from aiogram.types import ContentType
 from dotenv import load_dotenv
 from openai import AsyncOpenAI
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+)
+logger = logging.getLogger(__name__)
 
 _ = load_dotenv()
 
@@ -30,26 +37,87 @@ DATA_DIR.mkdir(exist_ok=True)
 RESUMES_FILE: Path = DATA_DIR / "resumes.json"
 
 # Simple state management
-user_states: dict[str, str] = {}  # user_id -> state
-WAITING_FOR_RESUME: str = "waiting_for_resume"
-WAITING_FOR_JOB_DESC: str = "waiting_for_job_desc"
+user_states: dict[str, str] = {}
+WAITING_FOR_RESUME: str = "resume"
+WAITING_FOR_JOB_DESC: str = "job_desc"
+
+
+class ResumeStorageError(Exception):
+    """Error related to resume storage operations."""
+
+    pass
 
 
 def load_resumes() -> dict[str, str]:
     """Load resumes from JSON file."""
-    if RESUMES_FILE.exists():
-        content: str = RESUMES_FILE.read_text()
-        try:
-            loaded_data: dict[str, str] = json.loads(content)
-            return loaded_data
-        except (json.JSONDecodeError, TypeError):
-            return {}
-    return {}
+    try:
+        if RESUMES_FILE.exists():
+            content: str = RESUMES_FILE.read_text()
+            try:
+                loaded_data: dict[str, str] = json.loads(content)
+                logger.debug(f"Loaded {len(loaded_data)} resumes")
+                return loaded_data
+            except (json.JSONDecodeError, TypeError) as e:
+                logger.error(f"Error parsing resumes file: {e}")
+                return {}
+        return {}
+    except Exception as e:
+        logger.error(f"Error loading resumes: {e}")
+        raise ResumeStorageError(f"Failed to load resumes: {e}") from e
 
 
 def save_resumes(resumes: dict[str, str]) -> None:
     """Save resumes to JSON file."""
-    _ = RESUMES_FILE.write_text(json.dumps(resumes, indent=2))
+    try:
+        _ = RESUMES_FILE.write_text(json.dumps(resumes, indent=2))
+        logger.debug(f"Saved {len(resumes)} resumes")
+    except Exception as e:
+        logger.error(f"Error saving resumes: {e}")
+        raise ResumeStorageError(f"Failed to save resumes: {e}") from e
+
+
+async def download_and_validate_document(document: types.Document) -> str:
+    """Download and validate document content."""
+    if not document.file_name or not document.file_id:
+        raise ValueError("Invalid document")
+
+    if not document.file_name.lower().endswith(".md"):
+        raise ValueError("Only .md files are accepted")
+
+    file = await bot.get_file(document.file_id)
+    if not file.file_path:
+        raise ValueError("Could not get file path")
+
+    file_content = await bot.download_file(file.file_path)
+    if not file_content:
+        raise ValueError("File content is empty")
+
+    try:
+        return file_content.read().decode("utf-8")
+    except UnicodeDecodeError as e:
+        raise ValueError("File contains invalid characters") from e
+
+
+async def save_user_resume(user_id: str, resume_content: str) -> None:
+    """Save resume for user."""
+    resumes = load_resumes()
+    resumes[user_id] = resume_content
+    save_resumes(resumes)
+
+
+def get_user_state(user_id: str) -> str | None:
+    """Get user state."""
+    return user_states.get(user_id)
+
+
+def set_user_state(user_id: str, state: str) -> None:
+    """Set user state."""
+    user_states[user_id] = state
+
+
+def clear_user_state(user_id: str) -> None:
+    """Clear user state."""
+    user_states.pop(user_id, None)
 
 
 @dp.message(Command("start"))
@@ -70,7 +138,7 @@ async def set_resume_handler(message: types.Message) -> None:
         return
 
     user_id: str = str(message.from_user.id)
-    user_states[user_id] = WAITING_FOR_RESUME
+    set_user_state(user_id, WAITING_FOR_RESUME)
 
     _ = await message.answer(
         "Please upload your resume as a .md file 📄\n(Only Markdown files are accepted)"
@@ -84,14 +152,18 @@ async def generate_handler(message: types.Message) -> None:
         return
 
     user_id: str = str(message.from_user.id)
-    resumes: dict[str, str] = load_resumes()
 
-    if user_id not in resumes:
-        _ = await message.answer("❌ Please set your resume first with /set_resume")
-        return
+    try:
+        resumes = load_resumes()
+        if user_id not in resumes:
+            _ = await message.answer("❌ Please set your resume first with /set_resume")
+            return
 
-    user_states[user_id] = WAITING_FOR_JOB_DESC
-    _ = await message.answer("Please send the job description to generate a cover letter:")
+        set_user_state(user_id, WAITING_FOR_JOB_DESC)
+        _ = await message.answer("Please send the job description to generate a cover letter:")
+
+    except ResumeStorageError:
+        _ = await message.answer("❌ Error accessing resume storage. Please try again.")
 
 
 # Handle document uploads
@@ -110,50 +182,31 @@ async def document_handler(message: types.Message) -> None:
     document = message.document
 
     # Check user state
-    if user_states.get(user_id) != WAITING_FOR_RESUME:
+    if get_user_state(user_id) != WAITING_FOR_RESUME:
         _ = await message.answer("❌ Please use /set_resume command first to upload your resume.")
         return
 
-    # Check if document exists and has required attributes
-    if not document or not document.file_name or not document.file_id:
+    if not document:
         _ = await message.answer("❌ Invalid document. Please try uploading again.")
         return
 
-    # Check if it's a markdown file
-    if not document.file_name.lower().endswith(".md"):
-        _ = await message.answer("❌ Please upload only .md (Markdown) files for your resume.")
-        return
-
     try:
-        # Download the file
-        file = await bot.get_file(document.file_id)
-        if not file.file_path:
-            _ = await message.answer("❌ Error: Could not download file.")
-            return
-
-        file_content = await bot.download_file(file.file_path)
-        if not file_content:
-            _ = await message.answer("❌ Error: File content is empty.")
-            return
-
-        # Read the content as text
-        resume_content: str = file_content.read().decode("utf-8")
-
-        # Save the resume
-        resumes: dict[str, str] = load_resumes()
-        resumes[user_id] = resume_content
-        save_resumes(resumes)
-
-        # Clear user state
-        _ = user_states.pop(user_id, None)
+        resume_content = await download_and_validate_document(document)
+        await save_user_resume(user_id, resume_content)
+        clear_user_state(user_id)
 
         _ = await message.answer(
             f"✅ Resume from '{document.file_name}' saved successfully!\n"
             + "Use /generate to create cover letters."
         )
 
+    except ValueError as e:
+        _ = await message.answer(f"❌ {str(e)}")
+    except ResumeStorageError:
+        _ = await message.answer("❌ Error saving resume. Please try again.")
     except Exception as e:
-        _ = await message.answer(f"❌ Error processing file: {str(e)}")
+        logger.error(f"Error processing file for user {user_id}: {e}")
+        _ = await message.answer("❌ Error processing file. Please try again.")
 
 
 # Handle text messages (job description only)
@@ -165,32 +218,32 @@ async def text_handler(message: types.Message) -> None:
 
     user_id: str = str(message.from_user.id)
     text: str = message.text
+    state = get_user_state(user_id)
 
-    # Check user state
-    if user_states.get(user_id) == WAITING_FOR_RESUME:
+    if state == WAITING_FOR_RESUME:
         _ = await message.answer(
             "❌ Please upload your resume as a .md file, not as text.\n"
             + "Use the document upload feature to send your .md file."
         )
         return
 
-    if user_states.get(user_id) == WAITING_FOR_JOB_DESC:
-        # Generate cover letter
-        resumes: dict[str, str] = load_resumes()
-
-        if user_id not in resumes:
-            _ = await message.answer("❌ Please set your resume first with /set_resume")
-            return
-
-        _ = await message.answer("🔄 Generating cover letter...")
-
+    if state == WAITING_FOR_JOB_DESC:
         try:
-            cover_letter: str = await generate_cover_letter(resumes[user_id], text)
+            resumes = load_resumes()
+            if user_id not in resumes:
+                _ = await message.answer("❌ Please set your resume first with /set_resume")
+                return
+
+            _ = await message.answer("🔄 Generating cover letter...")
+            cover_letter = await generate_cover_letter(resumes[user_id], text)
             _ = await message.answer(f"📄 Your cover letter:\n\n{cover_letter}")
-            # Clear user state
-            _ = user_states.pop(user_id, None)
+            clear_user_state(user_id)
+
+        except ResumeStorageError:
+            _ = await message.answer("❌ Error accessing resume storage. Please try again.")
         except Exception as e:
-            _ = await message.answer(f"❌ Error: {str(e)}")
+            logger.error(f"Cover letter generation failed for user {user_id}: {e}")
+            _ = await message.answer("❌ Error generating cover letter. Please try again.")
     else:
         _ = await message.answer(
             "❌ Unknown command. Please use:\n"
@@ -201,6 +254,8 @@ async def text_handler(message: types.Message) -> None:
 
 async def generate_cover_letter(resume: str, job_description: str) -> str:
     """Generate a cover letter using simplified system."""
+    logger.debug("Starting cover letter generation with CoverLetterGenerator")
+
     try:
         # Use simple cover letter generator
         from cover_letter import CoverLetterGenerator
@@ -213,52 +268,29 @@ async def generate_cover_letter(resume: str, job_description: str) -> str:
 
         # Add quality info if low
         if result.quality_score < 0.8:
+            logger.info(
+                f"Generated cover letter with low quality score: {result.quality_score:.2f}"
+            )
             response_parts.append(f"\n⚠️ Качество: {result.quality_score:.0%}")
 
         return "\n".join(response_parts)
 
-    except Exception:
-        # Simple fallback
-        return await generate_cover_letter_fallback(resume, job_description)
-
-
-async def generate_cover_letter_fallback(resume: str, job_description: str) -> str:
-    """Fallback cover letter generation (original simple method)."""
-    try:
-        system_prompt = """
-        You are a professional cover letter writer. Create concise, relevant cover letters
-        in Russian language. Base the cover letter strictly on the real experience and skills mentioned
-        in the provided resume.
-        """
-
-        user_prompt = f"""
-        Resume:
-        {resume}
-
-        Job Description:
-        {job_description}
-        """
-
-        response = await client.chat.completions.create(
-            model="gpt-4o-mini",
-            messages=[
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ],
-            max_tokens=1500,
-            temperature=0.5,
-        )
-
-        content: str | None = response.choices[0].message.content
-        return content if content else "Error: Empty response from OpenAI"
-
     except Exception as e:
-        raise Exception(f"OpenAI API error: {str(e)}")
+        logger.warning(f"Main generator failed, using fallback: {e}")
+        # Use generator's internal fallback instead
+        generator = CoverLetterGenerator(client)
+        result = await generator._simple_fallback(resume, job_description, 0.0)
+        return result.cover_letter
 
 
 async def main() -> None:
     """Main function to start the bot."""
-    await dp.start_polling(bot)
+    logger.info("Starting Lucidum bot")
+    try:
+        await dp.start_polling(bot)
+    except Exception as e:
+        logger.error(f"Bot failed to start: {e}", exc_info=True)
+        raise
 
 
 if __name__ == "__main__":

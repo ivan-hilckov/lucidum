@@ -3,7 +3,7 @@ Integration tests for complete cover letter generation pipeline.
 """
 
 import pytest
-from cover_letter import CoverLetterGenerator, CoverLetterResult, ValidationResult, JobAnalysis
+from cover_letter import CoverLetterGenerator, CoverLetterResult
 
 
 class TestIntegration:
@@ -33,15 +33,13 @@ class TestIntegration:
         assert len(result.cover_letter) > 200
         assert result.quality_score >= 0.0
         assert result.quality_score <= 1.0
-        assert isinstance(result.validation_result, ValidationResult)
-        assert isinstance(result.job_analysis, JobAnalysis)
         assert result.generation_time > 0
         assert isinstance(result.metadata, dict)
+        assert isinstance(result.keywords_found, int)
 
         # Verify content quality
         assert "TechStart" in result.cover_letter
         assert "Python" in result.cover_letter
-        assert result.validation_result.is_valid
 
     @pytest.mark.asyncio
     async def test_simple_generation(
@@ -110,8 +108,8 @@ class TestIntegration:
         )
 
         assert isinstance(result, CoverLetterResult)
-        # Company name should be set when not using fallback
-        assert result.job_analysis.company_name == "CustomCorp"
+        # Check that CustomCorp is mentioned in the letter
+        assert "CustomCorp" in result.cover_letter
 
     @pytest.mark.asyncio
     async def test_fallback_on_error(
@@ -132,7 +130,7 @@ class TestIntegration:
 
             # Check if this is fallback call
             is_fallback_call = any(
-                "короткое сопроводительное письмо" in str(msg.get("content", ""))
+                "профессиональное сопроводительное письмо" in str(msg.get("content", ""))
                 for msg in messages
             )
 
@@ -191,45 +189,8 @@ Best regards"""
         mock_openai_client.chat.completions.create.side_effect = [tech_response1, tech_response2]
         tech_result = await generator.generate(tech_resume, tech_job)
         assert isinstance(tech_result, CoverLetterResult)
-        assert tech_result.job_analysis.is_technical_role
-
-        # For creative job, set up separate mock responses
-        creative_resume = "# Designer\nGraphic designer"
-        creative_job = "Looking for UX/UI designer with Figma skills"
-
-        # Mock responses for creative job with fallback success
-        def creative_side_effect(*args, **kwargs):
-            # Check if this is a fallback call
-            if len(args) > 0 and hasattr(args[0], "get"):
-                messages = args[0].get("messages", [])
-            elif "messages" in kwargs:
-                messages = kwargs["messages"]
-            else:
-                messages = []
-
-            is_fallback_call = any(
-                "короткое сопроводительное письмо" in str(msg.get("content", ""))
-                for msg in messages
-            )
-
-            if is_fallback_call:
-                # Fallback call succeeds
-                response = Mock()
-                response.choices = [Mock()]
-                response.choices[0].message = Mock()
-                response.choices[
-                    0
-                ].message.content = "Creative designer cover letter with enough words to pass validation check. This letter demonstrates design skills and experience with creative projects and user interface design."
-                return response
-            else:
-                # Regular calls fail to trigger fallback
-                raise Exception("Mock API Error")
-
-        mock_openai_client.chat.completions.create.side_effect = creative_side_effect
-        creative_result = await generator.generate(creative_resume, creative_job)
-        assert isinstance(creative_result, CoverLetterResult)
-        # Should use fallback due to mock failures
-        assert creative_result.metadata.get("fallback_used", False)
+        # Check that generation was successful
+        assert tech_result.keywords_found > 0
 
     @pytest.mark.asyncio
     async def test_performance_metrics(
