@@ -71,7 +71,7 @@ class CoverLetterGenerator:
 
             # Step 2: Generate cover letter
             cover_letter = await self._generate_cover_letter(
-                resume, job_description, job_analysis, company_name
+                resume, job_description, job_analysis, company_name, special_requirements
             )
             logger.info("Cover letter generated successfully")
 
@@ -108,13 +108,19 @@ class CoverLetterGenerator:
 
         except OpenAIError as e:
             logger.error(f"OpenAI service error during generation: {e}")
-            return await self._simple_fallback(resume, job_description, start_time)
+            return await self._simple_fallback(
+                resume, job_description, start_time, special_requirements
+            )
         except CoverLetterGenerationError as e:
             logger.warning(f"Content generation error: {e}")
-            return await self._simple_fallback(resume, job_description, start_time)
+            return await self._simple_fallback(
+                resume, job_description, start_time, special_requirements
+            )
         except Exception as e:
             logger.error(f"Unexpected error during generation: {e}", exc_info=True)
-            return await self._simple_fallback(resume, job_description, start_time)
+            return await self._simple_fallback(
+                resume, job_description, start_time, special_requirements
+            )
 
     async def _analyze_job(self, job_description: str) -> JobAnalysis:
         """
@@ -209,6 +215,7 @@ class CoverLetterGenerator:
         job_description: str,
         job_analysis: JobAnalysis,
         company_name: str = "",
+        special_requirements: str = "",
     ) -> str:
         """Generate cover letter using simplified prompt."""
         logger.debug("Generating cover letter content")
@@ -234,6 +241,10 @@ class CoverLetterGenerator:
         final_company = company_name or job_analysis.company_name
         if final_company:
             prompt_parts.extend(["", f"НАЗВАНИЕ КОМПАНИИ: {final_company}"])
+
+        # Add special requirements if provided
+        if special_requirements:
+            prompt_parts.extend(["", f"ДОПОЛНИТЕЛЬНЫЕ ИНСТРУКЦИИ: {special_requirements}"])
 
         user_prompt = "\n".join(prompt_parts)
 
@@ -262,13 +273,15 @@ class CoverLetterGenerator:
             raise CoverLetterGenerationError(f"Failed to generate cover letter: {e}") from e
 
     async def _simple_fallback(
-        self, resume: str, job_description: str, start_time: float
+        self, resume: str, job_description: str, start_time: float, special_requirements: str = ""
     ) -> CoverLetterResult:
         """Ultra-simple fallback generation."""
         logger.info("Using fallback generation method")
 
         try:
             user_prompt = f"Резюме:\n{resume}\n\nВакансия:\n{job_description}"
+            if special_requirements:
+                user_prompt += f"\n\nДополнительные инструкции:\n{special_requirements}"
 
             response = await self.client.chat.completions.create(
                 model=DEFAULT_MODEL,

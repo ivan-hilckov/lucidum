@@ -38,8 +38,11 @@ RESUMES_FILE: Path = DATA_DIR / "resumes.json"
 
 # Simple state management
 user_states: dict[str, str] = {}
+# Temporary data storage for multi-step processes
+user_temp_data: dict[str, dict[str, str]] = {}
 WAITING_FOR_RESUME: str = "resume"
 WAITING_FOR_JOB_DESC: str = "job_desc"
+WAITING_FOR_ADDITIONAL_INSTRUCTIONS: str = "additional_instructions"
 
 
 class ResumeStorageError(Exception):
@@ -118,6 +121,24 @@ def set_user_state(user_id: str, state: str) -> None:
 def clear_user_state(user_id: str) -> None:
     """Clear user state."""
     user_states.pop(user_id, None)
+    clear_user_temp_data(user_id)
+
+
+def set_user_temp_data(user_id: str, key: str, value: str) -> None:
+    """Set temporary data for user."""
+    if user_id not in user_temp_data:
+        user_temp_data[user_id] = {}
+    user_temp_data[user_id][key] = value
+
+
+def get_user_temp_data(user_id: str, key: str) -> str | None:
+    """Get temporary data for user."""
+    return user_temp_data.get(user_id, {}).get(key)
+
+
+def clear_user_temp_data(user_id: str) -> None:
+    """Clear all temporary data for user."""
+    user_temp_data.pop(user_id, None)
 
 
 @dp.message(Command("start"))
@@ -234,8 +255,42 @@ async def text_handler(message: types.Message) -> None:
                 _ = await message.answer("❌ Please set your resume first with /set_resume")
                 return
 
+            # Save job description and ask for additional instructions
+            set_user_temp_data(user_id, "job_description", text)
+            set_user_state(user_id, WAITING_FOR_ADDITIONAL_INSTRUCTIONS)
+            _ = await message.answer(
+                "📝 Additional instructions for cover letter generation?\n"
+                + "(Example: 'use only work experience from job title Senior Developer', or just send '-' to skip)"
+            )
+
+        except ResumeStorageError:
+            _ = await message.answer("❌ Error accessing resume storage. Please try again.")
+        except Exception as e:
+            logger.error(f"Error processing job description for user {user_id}: {e}")
+            _ = await message.answer("❌ Error processing job description. Please try again.")
+
+    elif state == WAITING_FOR_ADDITIONAL_INSTRUCTIONS:
+        try:
+            resumes = load_resumes()
+            if user_id not in resumes:
+                _ = await message.answer("❌ Please set your resume first with /set_resume")
+                return
+
+            job_description = get_user_temp_data(user_id, "job_description")
+            if not job_description:
+                _ = await message.answer(
+                    "❌ Job description not found. Please use /generate again."
+                )
+                clear_user_state(user_id)
+                return
+
+            # Process additional instructions (empty string if user sent '-')
+            additional_instructions = text.strip() if text.strip() != "-" else ""
+
             _ = await message.answer("🔄 Generating cover letter...")
-            cover_letter = await generate_cover_letter(resumes[user_id], text)
+            cover_letter = await generate_cover_letter(
+                resumes[user_id], job_description, additional_instructions
+            )
             _ = await message.answer(f"📄 Your cover letter:\n\n{cover_letter}")
             clear_user_state(user_id)
 
@@ -252,7 +307,9 @@ async def text_handler(message: types.Message) -> None:
         )
 
 
-async def generate_cover_letter(resume: str, job_description: str) -> str:
+async def generate_cover_letter(
+    resume: str, job_description: str, additional_instructions: str = ""
+) -> str:
     """Generate a cover letter using simplified system."""
     logger.debug("Starting cover letter generation with CoverLetterGenerator")
 
@@ -261,7 +318,11 @@ async def generate_cover_letter(resume: str, job_description: str) -> str:
         from cover_letter import CoverLetterGenerator
 
         generator = CoverLetterGenerator(client)
-        result = await generator.generate(resume=resume, job_description=job_description)
+        result = await generator.generate(
+            resume=resume,
+            job_description=job_description,
+            special_requirements=additional_instructions,
+        )
 
         # Simple response
         response_parts = [result.cover_letter]
@@ -279,7 +340,9 @@ async def generate_cover_letter(resume: str, job_description: str) -> str:
         logger.warning(f"Main generator failed, using fallback: {e}")
         # Use generator's internal fallback instead
         generator = CoverLetterGenerator(client)
-        result = await generator._simple_fallback(resume, job_description, 0.0)
+        result = await generator._simple_fallback(
+            resume, job_description, 0.0, additional_instructions
+        )
         return result.cover_letter
 
 
