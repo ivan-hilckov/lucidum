@@ -1,4 +1,4 @@
-.PHONY: lint check format install run clean test test-smoke test-cov
+.PHONY: lint check format install run clean test test-smoke test-cov debug
 
 # Run type checking with basedpyright
 lint:
@@ -19,6 +19,10 @@ install:
 # Run the bot
 run:
 	uv run python bot.py
+
+# Run debug server for prompt testing
+debug:
+	uv run python debug_server.py
 
 # Run all tests
 test:
@@ -54,6 +58,7 @@ help:
 	@echo "  check       - Check code with ruff"
 	@echo "  install     - Install dependencies"
 	@echo "  run         - Run the bot"
+	@echo "  debug       - Run debug server for prompt testing"
 	@echo "  test        - Run all tests"
 	@echo "  test-smoke  - Run smoke tests only"
 	@echo "  test-cov    - Run tests with coverage"

@@ -45,6 +45,110 @@ class CoverLetterGenerator:
         """Initialize the generator."""
         self.client = openai_client
 
+    async def analyze_job_only(
+        self,
+        job_description: str,
+        custom_keyword_prompt: Optional[str] = None,
+    ) -> dict:
+        """
+        Analyze job description only, without generating cover letter.
+        Returns analysis data for UI auto-fill.
+        """
+        try:
+            job_analysis = await self._analyze_job(job_description, custom_keyword_prompt)
+
+            # Extract additional metadata for UI
+            additional_info = await self._extract_job_metadata(job_description)
+
+            return {
+                "company_name": job_analysis.company_name or "",
+                "keywords": job_analysis.keywords,
+                "hiring_manager": additional_info.get("hiring_manager", ""),
+                "position_title": additional_info.get("position_title", ""),
+                "key_requirements": additional_info.get("key_requirements", []),
+                "confidence_score": 0.8 if job_analysis.company_name else 0.5,
+            }
+        except Exception as e:
+            logger.error(f"Error in job analysis: {e}")
+            return {
+                "company_name": "",
+                "keywords": [],
+                "hiring_manager": "",
+                "position_title": "",
+                "key_requirements": [],
+                "confidence_score": 0.0,
+            }
+
+    async def _extract_job_metadata(self, job_description: str) -> dict:
+        """Extract additional job metadata for UI."""
+        try:
+            metadata_prompt = """
+            Analyze the job description and extract key information. Return ONLY a JSON object with these fields:
+            - hiring_manager: Hiring manager name if mentioned (string, empty if not found)
+            - position_title: Job title/position name (string)
+            - key_requirements: Top 5 most important requirements (array of strings)
+            
+            Job Description:
+            {job_description}
+            
+            Respond ONLY with valid JSON, no other text.
+            """
+
+            response = await self.client.chat.completions.create(
+                model=DEFAULT_MODEL,
+                messages=[
+                    {
+                        "role": "user",
+                        "content": metadata_prompt.format(job_description=job_description),
+                    }
+                ],
+                temperature=0.1,
+                max_tokens=400,
+            )
+
+            content = response.choices[0].message.content
+            if content:
+                import json
+
+                result = json.loads(content)
+                logger.debug(f"Extracted metadata: {result}")
+                return result
+            else:
+                logger.warning("Empty response from OpenAI for metadata extraction")
+        except Exception as e:
+            logger.error(f"Error extracting job metadata: {e}")
+
+        # Fallback: extract basic requirements using regex
+        fallback_requirements = self._extract_requirements_fallback(job_description)
+        return {
+            "hiring_manager": "",
+            "position_title": "",
+            "key_requirements": fallback_requirements,
+        }
+
+    def _extract_requirements_fallback(self, job_description: str) -> List[str]:
+        """Fallback method to extract requirements using simple patterns."""
+        requirements = []
+        lines = job_description.split("\n")
+
+        for line in lines:
+            line = line.strip()
+            if any(
+                keyword in line.lower()
+                for keyword in ["требования:", "requirements:", "требуется:", "нужно:"]
+            ):
+                # Extract requirements from this line and next few lines
+                continue
+            elif line.startswith("•") or line.startswith("-") or line.startswith("*"):
+                # This looks like a requirement
+                clean_line = line.lstrip("•-* ").strip()
+                if clean_line and len(clean_line) > 3:
+                    requirements.append(clean_line)
+                    if len(requirements) >= 5:
+                        break
+
+        return requirements[:5]  # Return top 5
+
     async def generate(
         self,
         resume: str,
@@ -52,6 +156,8 @@ class CoverLetterGenerator:
         company_name: str = "",
         hiring_manager: str = "",
         special_requirements: str = "",
+        custom_system_prompt: Optional[str] = None,
+        custom_keyword_prompt: Optional[str] = None,
     ) -> CoverLetterResult:
         """
         Generate cover letter - simplified version.
@@ -61,7 +167,7 @@ class CoverLetterGenerator:
 
         try:
             # Step 1: Simple job analysis
-            job_analysis = await self._analyze_job(job_description)
+            job_analysis = await self._analyze_job(job_description, custom_keyword_prompt)
             logger.debug(f"Job analysis completed: {len(job_analysis.keywords)} keywords found")
 
             # Override company name if provided
@@ -71,7 +177,12 @@ class CoverLetterGenerator:
 
             # Step 2: Generate cover letter
             cover_letter = await self._generate_cover_letter(
-                resume, job_description, job_analysis, company_name, special_requirements
+                resume,
+                job_description,
+                job_analysis,
+                company_name,
+                special_requirements,
+                custom_system_prompt,
             )
             logger.info("Cover letter generated successfully")
 
@@ -122,7 +233,9 @@ class CoverLetterGenerator:
                 resume, job_description, start_time, special_requirements
             )
 
-    async def _analyze_job(self, job_description: str) -> JobAnalysis:
+    async def _analyze_job(
+        self, job_description: str, custom_keyword_prompt: Optional[str] = None
+    ) -> JobAnalysis:
         """
         Simple job analysis - extract basic info only.
         """
@@ -130,7 +243,7 @@ class CoverLetterGenerator:
 
         # Simple keyword extraction
         try:
-            keywords = await self._extract_keywords(job_description)
+            keywords = await self._extract_keywords(job_description, custom_keyword_prompt)
         except CoverLetterGenerationError:
             logger.warning("Keyword extraction failed, using fallback")
             keywords = self._extract_keywords_regex(job_description)
@@ -145,13 +258,17 @@ class CoverLetterGenerator:
             company_name=company_name,
         )
 
-    async def _extract_keywords(self, job_description: str) -> List[str]:
+    async def _extract_keywords(
+        self, job_description: str, custom_prompt: Optional[str] = None
+    ) -> List[str]:
         """Simple keyword extraction using OpenAI."""
         logger.debug("Extracting keywords using OpenAI")
 
-        prompt = KEYWORD_EXTRACTION_PROMPT.format(
-            job_description=job_description[:JOB_DESCRIPTION_PREVIEW_LIMIT]
+        # Use custom prompt if provided, otherwise use default
+        base_prompt = (
+            custom_prompt if custom_prompt and custom_prompt.strip() else KEYWORD_EXTRACTION_PROMPT
         )
+        prompt = base_prompt.format(job_description=job_description[:JOB_DESCRIPTION_PREVIEW_LIMIT])
 
         try:
             response = await self.client.chat.completions.create(
@@ -216,12 +333,17 @@ class CoverLetterGenerator:
         job_analysis: JobAnalysis,
         company_name: str = "",
         special_requirements: str = "",
+        custom_system_prompt: Optional[str] = None,
     ) -> str:
         """Generate cover letter using simplified prompt."""
         logger.debug("Generating cover letter content")
 
-        # Build system prompt (simplified role)
-        system_prompt = COVER_LETTER_SYSTEM_PROMPT
+        # Build system prompt (use custom if provided, otherwise default)
+        system_prompt = (
+            custom_system_prompt
+            if custom_system_prompt and custom_system_prompt.strip()
+            else COVER_LETTER_SYSTEM_PROMPT
+        )
 
         # Add keywords if available
         if job_analysis.keywords:

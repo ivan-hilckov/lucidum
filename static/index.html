@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Cover Letter Debug Interface</title>
+    <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+    <div class="container">
+        <h1>🔧 Cover Letter Debug Interface</h1>
+        
+        <div class="tabs">
+            <div class="tab active" onclick="switchTab('generate')">Generate</div>
+            <div class="tab" onclick="switchTab('prompts')">Edit Prompts</div>
+        </div>
+        
+        <!-- Generate Tab -->
+        <div id="generate-tab" class="tab-content active">
+            <div class="two-column">
+                <div>
+                    <div class="section">
+                        <h3>📄 Resume</h3>
+                        <textarea id="resume" placeholder="Paste resume content here..."></textarea>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>💼 Job Description</h3>
+                        <textarea id="jobDescription" placeholder="Paste job description here..."></textarea>
+                    </div>
+                </div>
+                
+                <div>
+                    <div class="section">
+                        <h3>⚙️ Optional Parameters</h3>
+                        <button class="auto-fill-btn" onclick="autoFillParameters()">🔍 Auto-Fill from Job Description</button>
+                        <br><br>
+                        <input type="text" id="companyName" placeholder="Company name (optional)">
+                        <br><br>
+                        <input type="text" id="hiringManager" placeholder="Hiring manager (optional)">
+                        <br><br>
+                        <textarea id="specialRequirements" placeholder="Special requirements (optional)"></textarea>
+                        
+                        <div class="checkbox-container">
+                            <label>
+                                <input type="checkbox" id="useFallback">
+                                Use fallback generation method
+                            </label>
+                        </div>
+                    </div>
+                    
+                    <div class="section">
+                        <h3>🔧 Advanced Settings</h3>
+                        <label for="modelName">Model:</label>
+                        <select id="modelName" style="width: 100%; padding: 8px; margin-bottom: 10px;">
+                            <option value="gpt-4o-mini">gpt-4o-mini (Fast)</option>
+                            <option value="gpt-4o">gpt-4o (Better quality)</option>
+                            <option value="gpt-3.5-turbo">gpt-3.5-turbo (Cheap)</option>
+                        </select>
+                        
+                        <label for="temperature">Temperature (0.0-2.0):</label>
+                        <input type="range" id="temperature" min="0" max="2" step="0.1" value="0.98" style="width: 100%; margin-bottom: 5px;">
+                        <span id="temperatureValue">0.98</span>
+                        
+                        <br><br>
+                        <label for="maxTokens">Max Tokens:</label>
+                        <input type="number" id="maxTokens" value="1000" min="100" max="4000" style="width: 100%; padding: 8px;">
+                    </div>
+                </div>
+            </div>
+            
+            <!-- Collapsible Prompt Editing Section -->
+            <div class="collapsible">
+                <div class="collapsible-header" onclick="toggleCollapsible('prompts')">
+                    <span>✏️ Edit Prompts (Optional)</span>
+                    <span id="prompts-indicator">▼</span>
+                </div>
+                <div class="collapsible-content" id="prompts-content">
+                    <div style="margin-bottom: 15px;">
+                        <label for="quickSystemPrompt"><strong>System Prompt:</strong></label>
+                        <textarea id="quickSystemPrompt" class="prompt-textarea" placeholder="Leave empty to use default"></textarea>
+                    </div>
+                    
+                    <div style="margin-bottom: 15px;">
+                        <label for="quickKeywordPrompt"><strong>Keyword Extraction Prompt:</strong></label>
+                        <textarea id="quickKeywordPrompt" class="prompt-textarea" placeholder="Leave empty to use default"></textarea>
+                    </div>
+                    
+                    <button onclick="loadCurrentPrompts()" class="secondary-btn">📥 Load Current Prompts</button>
+                    <button onclick="clearCustomPrompts()" class="secondary-btn">🧹 Clear Custom Prompts</button>
+                </div>
+            </div>
+            
+            <button onclick="generateCoverLetter()">🚀 Generate Cover Letter</button>
+            <button class="secondary-btn" onclick="loadExampleData()">📝 Load Example Data</button>
+            
+            <div id="result"></div>
+        </div>
+        
+        <!-- Prompts Tab -->
+        <div id="prompts-tab" class="tab-content">
+            <div class="section">
+                <h3>🔑 Keyword Extraction Prompt</h3>
+                <textarea id="keywordPrompt" class="prompt-textarea"></textarea>
+            </div>
+            
+            <div class="section">
+                <h3>✍️ Main System Prompt</h3>
+                <textarea id="systemPrompt" class="prompt-textarea"></textarea>
+            </div>
+            
+            <div class="section">
+                <h3>🔄 Fallback Prompt</h3>
+                <textarea id="fallbackPrompt" class="prompt-textarea"></textarea>
+            </div>
+            
+            <button onclick="loadCurrentPrompts()">📥 Load Current Prompts</button>
+            <button onclick="testWithCustomPrompts()" class="secondary-btn">🧪 Test with Custom Prompts</button>
+        </div>
+    </div>
+
+    <script src="/static/debug.js"></script>
+</body>
+</html> 
